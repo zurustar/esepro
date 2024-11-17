@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # -*- encoding: utf-8 -*-
 
 import socket, re, hashlib, sys
@@ -108,11 +108,12 @@ class Proxy:
   def start(self):
     while True:
       buf, addr = self.sock.recvfrom(0xffff)
-      print "<" * 72
-      print "received from " + addr[0] + " " + str(addr[1])
-      print "-" * 8
-      print buf
-      msg = Message(buf)
+      tmp = buf.decode('utf-8')
+      print("<" * 72)
+      print("received from " + addr[0] + " " + str(addr[1]))
+      print("-" * 8)
+      print(tmp)
+      msg = Message(tmp)
       if msg.method != None:
         viapos = msg.search("via", "v")
         msg.hdrs[viapos].vals[0] += ";received=" + addr[0]
@@ -129,7 +130,7 @@ class Proxy:
         if cseq_method == "ACK":
           cseq_method = "INVITE"
         branch += cseq_num + " " + cseq_method
-        branch = 'z9hG4bK' + hashlib.md5(branch).hexdigest()
+        branch = 'z9hG4bK' + hashlib.md5(branch.encode('utf-8')).hexdigest()
         msg.hdrs[viapos].vals.insert(0, self.via + branch)
         self.proc_request(msg)
       else:
@@ -150,7 +151,7 @@ class Proxy:
     if self.comp(requri, self.domain, self.ip, self.port):
       if msg.method == "REGISTER":
         return self.proc_register(msg)
-      if self.location_service.has_key(requri.userinfo):
+      if requri.userinfo in self.location_service:
         msg.requri = self.location_service[requri.userinfo]
       else:
         if msg.method != "ACK":
@@ -241,12 +242,13 @@ class Proxy:
       port = int(port)
     if self.ip == host and self.port == port:
       return
-    self.sock.sendto(buf, 0, (host, port))
-    print '>' * 72
-    print 'send to ' + host + ' ' + str(port)
-    print '-' * 8
-    print buf
+    self.sock.sendto(buf.encode('utf-8'), 0, (host, port))
+    print('>' * 72)
+    print('send to ' + host + ' ' + str(port))
+    print('-' * 8)
+    print(buf)
 
 px = Proxy(sys.argv[1], sys.argv[2], int(sys.argv[3]))
-print "ok"
+print("ok")
 px.start()
+
