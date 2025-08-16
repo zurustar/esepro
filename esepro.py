@@ -164,7 +164,7 @@ class Proxy:
       msg.hdrs.append(Header("Max-Forwards", ["70"]))
     elif msg.hdrs[pos].vals[0] == "0":
       if msg.method != "ACK":
-        resp = msg.gen_resp("420", "Too Many Hops")
+        resp = msg.gen_resp("483", "Too Many Hops")
         self.proc_response(resp)
       return
     else:
