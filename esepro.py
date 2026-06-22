@@ -142,11 +142,11 @@ class Proxy:
       branch += cseq_num + " " + cseq_method
       branch = 'z9hG4bK' + hashlib.md5(branch.encode('utf-8')).hexdigest()
       msg.hdrs[viapos].vals.insert(0, self.via + branch)
-      self.proc_request(msg)
+      self.handle_request(msg)
     else:
-      self.proc_response(msg)
+      self.handle_response(msg)
 
-  def proc_request(self, msg):
+  def handle_request(self, msg):
     # (1) Proxy-Requireがあったらエラー
     pos = msg.search("proxy-require")
     if pos != None:
@@ -154,18 +154,18 @@ class Proxy:
         unsupported = msg.hdrs[pos]
         resp = msg.gen_resp("420", "Bad Extension")
         resp.hdrs.append(unsupported)
-        self.proc_response(resp)
+        self.handle_response(resp)
       return
     # (2) Request-URIが自身を指しているかを判定する
     requri = AddrSpec(msg.requri)
     if self.comp(requri, self.domain, self.ip, self.port):
       if msg.method == "REGISTER":
-        return self.proc_register(msg)
+        return self.handle_register(msg)
       if requri.userinfo in self.location_service:
         msg.requri = self.location_service[requri.userinfo]
       else:
         if msg.method != "ACK":
-          self.proc_response(msg.gen_resp("404", "Not Found"))
+          self.handle_response(msg.gen_resp("404", "Not Found"))
         return
       requri = AddrSpec(msg.requri)
     # (3) Max-Forwardsの確認
@@ -175,7 +175,7 @@ class Proxy:
     elif msg.hdrs[pos].vals[0] == "0":
       if msg.method != "ACK":
         resp = msg.gen_resp("483", "Too Many Hops")
-        self.proc_response(resp)
+        self.handle_response(resp)
       return
     else:
       msg.hdrs[pos].vals[0] = str(int(msg.hdrs[pos].vals[0]) -1)
@@ -201,15 +201,15 @@ class Proxy:
       target = requri
     self.send(str(msg), target.host, target.port)
 
-  def proc_register(self, msg):
+  def handle_register(self, msg):
     addr = NameAddr(msg.hdrs[msg.search("to", "t")].vals[0])
     contact = msg.hdrs[msg.search("contact", "m")].vals[0]
     self.location_service[addr.userinfo] = contact
     resp = msg.gen_resp("200", "OK", [contact])
     resp.hdrs.append(Header("Service-Route", [self.sr]))
-    self.proc_response(resp)
+    self.handle_response(resp)
 
-  def proc_response(self, msg):
+  def handle_response(self, msg):
     # (1) 先頭のViaを削除
     pos = msg.search("via", "v")
     del msg.hdrs[pos].vals[0]
