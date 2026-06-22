@@ -108,33 +108,43 @@ class Proxy:
   def start(self):
     while True:
       buf, addr = self.sock.recvfrom(0xffff)
-      tmp = buf.decode('utf-8')
-      print("<" * 72)
-      print("received from " + addr[0] + " " + str(addr[1]))
-      print("-" * 8)
-      print(tmp)
-      msg = Message(tmp)
-      if msg.method != None:
-        viapos = msg.search("via", "v")
-        msg.hdrs[viapos].vals[0] += ";received=" + addr[0]
-        m = re.search(";\s*rport", msg.hdrs[viapos].vals[0])
-        if m != None:
-          tmpvia = msg.hdrs[viapos].vals[0]
-          tmpvia = tmpvia[:m.end()] + "=" + str(addr[1]) + tmpvia[m.end():]
-          msg.hdrs[viapos].vals[0] = tmpvia
-        branch = msg.hdrs[viapos].vals[0] + " "
-        branch += msg.hdrs[msg.search("call-id", "i")].vals[0] + " "
-        cseq = msg.hdrs[msg.search("cseq", "")].vals[0]
-        m = re.match(r'(\d+)\s+(\S+)', msg.hdrs[msg.search("cseq")].vals[0])
-        cseq_num, cseq_method = m.group(1), m.group(2)
-        if cseq_method == "ACK":
-          cseq_method = "INVITE"
-        branch += cseq_num + " " + cseq_method
-        branch = 'z9hG4bK' + hashlib.md5(branch.encode('utf-8')).hexdigest()
-        msg.hdrs[viapos].vals.insert(0, self.via + branch)
-        self.proc_request(msg)
-      else:
-        self.proc_response(msg)
+      # 不正なパケット1発でプロセスを止めないよう、処理は個別に保護する
+      try:
+        self.handle(buf, addr)
+      except Exception as e:
+        print("!" * 72)
+        print("error handling packet from " + addr[0] + " " + str(addr[1]))
+        print("-" * 8)
+        print(repr(e))
+
+  def handle(self, buf, addr):
+    tmp = buf.decode('utf-8')
+    print("<" * 72)
+    print("received from " + addr[0] + " " + str(addr[1]))
+    print("-" * 8)
+    print(tmp)
+    msg = Message(tmp)
+    if msg.method != None:
+      viapos = msg.search("via", "v")
+      msg.hdrs[viapos].vals[0] += ";received=" + addr[0]
+      m = re.search(";\s*rport", msg.hdrs[viapos].vals[0])
+      if m != None:
+        tmpvia = msg.hdrs[viapos].vals[0]
+        tmpvia = tmpvia[:m.end()] + "=" + str(addr[1]) + tmpvia[m.end():]
+        msg.hdrs[viapos].vals[0] = tmpvia
+      branch = msg.hdrs[viapos].vals[0] + " "
+      branch += msg.hdrs[msg.search("call-id", "i")].vals[0] + " "
+      cseq = msg.hdrs[msg.search("cseq", "")].vals[0]
+      m = re.match(r'(\d+)\s+(\S+)', msg.hdrs[msg.search("cseq")].vals[0])
+      cseq_num, cseq_method = m.group(1), m.group(2)
+      if cseq_method == "ACK":
+        cseq_method = "INVITE"
+      branch += cseq_num + " " + cseq_method
+      branch = 'z9hG4bK' + hashlib.md5(branch.encode('utf-8')).hexdigest()
+      msg.hdrs[viapos].vals.insert(0, self.via + branch)
+      self.proc_request(msg)
+    else:
+      self.proc_response(msg)
 
   def proc_request(self, msg):
     # (1) Proxy-Requireがあったらエラー
@@ -144,7 +154,7 @@ class Proxy:
         unsupported = msg.hdrs[pos]
         resp = msg.gen_resp("420", "Bad Extension")
         resp.hdrs.append(unsupported)
-        proc_response(resp)
+        self.proc_response(resp)
       return
     # (2) Request-URIが自身を指しているかを判定する
     requri = AddrSpec(msg.requri)
