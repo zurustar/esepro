@@ -34,6 +34,8 @@ class TestAddrSpec(unittest.TestCase):
     ('sip:alice:secret@example.com',       'sip', 'alice:secret', 'example.com',    None),
     ('sip:a@192.168.0.1:5060',             'sip', 'a',            '192.168.0.1',    '5060'),
     ('sip:1234@gw.example.com;user=phone', 'sip', '1234',         'gw.example.com', None),
+    ('SIP:alice@example.com',              'SIP', 'alice',        'example.com',    None),  # スキーム大小無視
+    ('sip:@example.com',                   'sip', '',             'example.com',    None),  # 空 userinfo
   ]
 
   def test_core_fields(self):
@@ -135,50 +137,60 @@ class TestNameAddr(unittest.TestCase):
     self.assertEqual(n.port, '5060')
     self.assertEqual(n.prms, ';tag=1')
 
+  def test_unquoted_display_name(self):
+    # 引用符なし表示名（1トークン・空白なし・複数トークンすべて）
+    for s, disp in [
+        ('Alice <sip:alice@example.com>', 'Alice'),
+        ('Alice<sip:a@b>',                'Alice'),
+        ('1001 <sip:1001@gw>',            '1001'),
+        ('Bob Smith <sip:bob@h>',         'Bob Smith'),
+    ]:
+      with self.subTest(s=s):
+        n = NameAddr(s)
+        self.assertEqual(n.display_name, disp)
+        self.assertEqual(n.scheme, 'sip')
+        self.assertIsNotNone(n.host)
+
+  def test_quoted_display_containing_angle_brackets(self):
+    # 引用符の内側の '<' '>' は表示名の一部であり、addr-spec の境界にしない
+    n = NameAddr('"<weird>" <sip:alice@host>')
+    self.assertEqual(n.display_name, '"<weird>"')
+    self.assertEqual(n.addr_spec, 'sip:alice@host')
+    self.assertEqual(n.host, 'host')
+
+  def test_param_attribution_brackets_vs_bare(self):
+    # 角括弧の有無で ; パラメータの帰属が変わる（RFC3261 §19.1.1）
+    inside = NameAddr('<sip:alice@host;transport=tcp>;tag=1')
+    self.assertEqual(inside.uri_prms, ';transport=tcp')  # 角括弧内は URI パラメータ
+    self.assertEqual(inside.prms, ';tag=1')              # 角括弧外はヘッダパラメータ
+    bare = NameAddr('sip:alice@host;transport=tcp')
+    self.assertEqual(bare.uri_prms, '')                  # 角括弧なしは URI パラメータを持たず
+    self.assertEqual(bare.prms, ';transport=tcp')        # 全てヘッダパラメータ
+
 
 class TestParsingLimitations(unittest.TestCase):
-  """正規表現ベースの簡略パーサが RFC3261 と乖離する既知の挙動を固定する
-  （DESIGN.md GAP-5: フル ABNF 検証は意図的に省略）。これらは「正しい」
-  挙動ではなく、現状の記録と回帰検知のためのテストである。"""
+  """簡略パーサに残る既知の制約（DESIGN.md GAP-5）。現状の記録と回帰検知のため。"""
 
-  def test_non_sip_scheme_leaves_userinfo_unset(self):
-    # sip 以外のスキームは host/port=None のみ設定し、userinfo 属性を設定しない
+  def test_unsupported_scheme_no_host_but_safe(self):
+    # sips/tel は host を解決しない（TLS 等は非対応）が、userinfo=None で安全
     for uri in ('sips:bob@example.com', 'tel:+81312345678'):
       with self.subTest(uri=uri):
         a = AddrSpec(uri)
         self.assertIsNone(a.host)
-        self.assertFalse(hasattr(a, 'userinfo'))
+        self.assertIsNone(a.userinfo)
 
-  def test_scheme_match_is_case_sensitive(self):
-    # 'SIP:' は 'sip' に一致せず host が解析されない（RFC ではスキームは大小無視）
-    a = AddrSpec('SIP:alice@example.com')
-    self.assertEqual(a.scheme, 'SIP')
-    self.assertIsNone(a.host)
+  def test_sips_inside_name_addr_not_resolved(self):
+    # name-addr 内の sips: も（クラッシュせず）host=None になる
+    n = NameAddr('"Bob Smith" <sips:bob@example.com>;tag=xyz')
+    self.assertEqual(n.addr_spec, 'sips:bob@example.com')
+    self.assertIsNone(n.host)
 
   def test_ipv6_host_is_truncated(self):
-    # IPv6 参照は最初の ':' で切れる（IPv6 非対応）
+    # IPv6 参照は最初の ':' で切れる（IPv6 非対応・未修正）
     a = AddrSpec('sip:alice@[2001:db8::1]:5060')
     self.assertEqual(a.userinfo, 'alice')
     self.assertEqual(a.host, '[2001')
     self.assertIsNone(a.port)
-
-  def test_empty_userinfo_folds_at_into_host(self):
-    # 'sip:@host' は userinfo を取らず '@' が host に混入する
-    a = AddrSpec('sip:@example.com')
-    self.assertIsNone(a.userinfo)
-    self.assertEqual(a.host, '@example.com')
-
-  def test_unquoted_display_name_breaks_parsing(self):
-    # 引用符なしの表示名（RFC で合法・実機で頻出）は解析できず host=None になる
-    n = NameAddr('Alice <sip:alice@example.com>')
-    self.assertEqual(n.addr_spec, 'Alice <sip:alice@example.com>')
-    self.assertIsNone(n.host)
-
-  def test_sips_inside_name_addr_not_resolved(self):
-    # name-addr 内の sips: も host を解決できない
-    n = NameAddr('"Bob Smith" <sips:bob@example.com>;tag=xyz')
-    self.assertEqual(n.addr_spec, 'sips:bob@example.com')
-    self.assertIsNone(n.host)
 
 
 class TestHeader(unittest.TestCase):
@@ -319,6 +331,22 @@ class TestRegister(ProxyTestCase):
     buf, host, port = self.sent[0]
     self.assertTrue(buf.startswith('SIP/2.0 200 OK'))
     self.assertEqual(host, '9.9.9.9')
+
+  def test_register_with_unquoted_display_name_in_to(self):
+    # To に引用符なし表示名があっても登録できる（パーサ修正 A の実利）
+    raw = sip([
+      'REGISTER sip:test.example SIP/2.0',
+      'Via: SIP/2.0/UDP 9.9.9.9:5060;branch=z9hG4bKreg',
+      'From: Alice <sip:alice@test.example>;tag=1',
+      'To: Alice <sip:alice@test.example>',
+      'Call-ID: c', 'CSeq: 1 REGISTER',
+      'Contact: sip:alice@10.0.0.9:5070',
+      'Content-Length: 0',
+    ])
+    self.feed(raw)
+    self.assertEqual(self.px.location_service['alice'], 'sip:alice@10.0.0.9:5070')
+    self.assertEqual(len(self.sent), 1)
+    self.assertTrue(self.sent[0][0].startswith('SIP/2.0 200 OK'))
 
 
 class TestRequestRouting(ProxyTestCase):

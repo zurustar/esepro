@@ -8,14 +8,14 @@ class AddrSpec:
   def __init__(self, buf):
     m = re.match(r'([^:]+):', buf)
     self.scheme, buf = m.group(1), buf[m.end():]
-    if self.scheme == 'sip':
-      m = re.match(r'(([^@]+)@)?([^?;]+)', buf)
+    if self.scheme.lower() == 'sip':           # スキームは大小無視
+      m = re.match(r'(([^@]*)@)?([^?;]+)', buf) # userinfo は空でも可('@'をhostに混ぜない)
       self.userinfo, hostport = m.group(2), m.group(3)
       buf = buf[m.end():]
       m = re.match(r'([^:]+)(:(\d+))?', hostport)
       self.host, self.port = m.group(1), m.group(3)
     else:
-      self.host = self.port = None
+      self.userinfo = self.host = self.port = None
     m = re.match(r'[^?]*', buf)
     self.uri_prms, self.headers = m.group(0), buf[m.end():]
 
@@ -23,12 +23,15 @@ class AddrSpec:
 class NameAddr(AddrSpec):
 
   def __init__(self, buf):
-    m = re.match(r'(("[^"]*")\s*)?', buf)
-    self.display_name, buf = m.group(0), buf[m.end():]
-    m = re.match(r'\s*<([^>]+)>', buf)
+    # name-addr (表示名 + <addr-spec>) を優先。表示名は quoted-string を先に
+    # 試し(内側の '<' '>' を巻き込まない)、無ければ '<' の手前までを引用符なし
+    # 表示名として許容する。
+    m = re.match(r'\s*("[^"]*"|[^<]*?)\s*<([^>]+)>', buf)
     if m != None:
-      self.addr_spec, buf = m.group(1), buf[m.end():]
+      self.display_name, self.addr_spec = m.group(1), m.group(2)
+      buf = buf[m.end():]
     else:
+      self.display_name = ''
       m = re.match(r'[^;]+', buf)
       self.addr_spec, buf = m.group(0), buf[m.end():]
     self.prms = buf
