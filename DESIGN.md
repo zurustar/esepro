@@ -58,7 +58,7 @@
 
 | ID | 欠陥 | 状態 |
 |----|------|------|
-| ~~CL-1~~ | `420 Bad Extension` 応答パスで `handle_response`（当時の名前は `proc_response`）が `self.` なしで呼ばれ、`NameError` で失敗していた（GAP-6 と自己矛盾） | **修正済み** — `self.handle_response(resp)` に修正。Proxy-Require 付き非ACK で 420 が返ることを実機確認 |
+| ~~CL-1~~ | `420 Bad Extension` 応答パスで `handle_response` が `self.` なしで呼ばれ、`NameError` で失敗していた（GAP-6 と自己矛盾） | **修正済み** — `self.handle_response(resp)` に修正。Proxy-Require 付き非ACK で 420 が返ることを実機確認 |
 | ~~CL-2~~ | 受信ループに例外処理がなく、不正・非UTF-8・部分的なパケット 1 発でプロセスが停止しうる（用途「相互接続検証」と矛盾） | **修正済み** — パケット処理を `handle()` に分離し受信ループで `try/except` 保護。不正パケットはログ出力して破棄し、プロセスは継続することを実機確認 |
 
 ---
