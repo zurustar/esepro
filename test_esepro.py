@@ -25,29 +25,48 @@ def sip(lines, body=''):
 
 class TestAddrSpec(unittest.TestCase):
 
-  def test_full_uri(self):
-    a = AddrSpec('sip:alice@example.com:5060')
-    self.assertEqual(a.scheme, 'sip')
-    self.assertEqual(a.userinfo, 'alice')
+  # (uri, scheme, userinfo, host, port)
+  CASES = [
+    ('sip:alice@example.com',              'sip', 'alice',        'example.com',    None),
+    ('sip:alice@example.com:5060',         'sip', 'alice',        'example.com',    '5060'),
+    ('sip:example.com',                    'sip', None,           'example.com',    None),
+    ('sip:example.com:5060',               'sip', None,           'example.com',    '5060'),
+    ('sip:alice:secret@example.com',       'sip', 'alice:secret', 'example.com',    None),
+    ('sip:a@192.168.0.1:5060',             'sip', 'a',            '192.168.0.1',    '5060'),
+    ('sip:1234@gw.example.com;user=phone', 'sip', '1234',         'gw.example.com', None),
+  ]
+
+  def test_core_fields(self):
+    for uri, scheme, user, host, port in self.CASES:
+      with self.subTest(uri=uri):
+        a = AddrSpec(uri)
+        self.assertEqual(a.scheme, scheme)
+        self.assertEqual(a.userinfo, user)
+        self.assertEqual(a.host, host)
+        self.assertEqual(a.port, port)
+
+  def test_uri_params_separated_from_host(self):
+    a = AddrSpec('sip:alice@example.com:5060;transport=tcp;lr')
     self.assertEqual(a.host, 'example.com')
     self.assertEqual(a.port, '5060')
+    self.assertEqual(a.uri_prms, ';transport=tcp;lr')
+    self.assertEqual(a.headers, '')
 
-  def test_no_port(self):
-    a = AddrSpec('sip:bob@example.com')
-    self.assertEqual(a.userinfo, 'bob')
+  def test_uri_headers_split_on_question_mark(self):
+    a = AddrSpec('sip:alice@example.com?subject=hi')
     self.assertEqual(a.host, 'example.com')
-    self.assertIsNone(a.port)
+    self.assertEqual(a.uri_prms, '')
+    self.assertEqual(a.headers, '?subject=hi')
 
-  def test_non_sip_scheme(self):
-    a = AddrSpec('tel:+81312345678')
-    self.assertEqual(a.scheme, 'tel')
-    self.assertIsNone(a.host)
-    self.assertIsNone(a.port)
+  def test_uri_params_and_headers_together(self):
+    a = AddrSpec('sip:alice@example.com;maddr=1.2.3.4?subject=hi')
+    self.assertEqual(a.uri_prms, ';maddr=1.2.3.4')
+    self.assertEqual(a.headers, '?subject=hi')
 
 
 class TestNameAddr(unittest.TestCase):
 
-  def test_display_name_and_params(self):
+  def test_quoted_display_and_brackets(self):
     n = NameAddr('"Alice" <sip:alice@example.com>;tag=1')
     self.assertIn('Alice', n.display_name)
     self.assertEqual(n.addr_spec, 'sip:alice@example.com')
@@ -55,10 +74,111 @@ class TestNameAddr(unittest.TestCase):
     self.assertEqual(n.host, 'example.com')
     self.assertEqual(n.prms, ';tag=1')
 
-  def test_bare_uri(self):
+  def test_brackets_no_display(self):
+    n = NameAddr('<sip:alice@example.com>')
+    self.assertEqual(n.display_name, '')
+    self.assertEqual(n.addr_spec, 'sip:alice@example.com')
+    self.assertEqual(n.prms, '')
+
+  def test_bare_addr_spec(self):
     n = NameAddr('sip:bob@host')
     self.assertEqual(n.addr_spec, 'sip:bob@host')
     self.assertEqual(n.host, 'host')
+
+  def test_bare_addr_spec_with_header_param(self):
+    n = NameAddr('sip:alice@example.com;tag=1')
+    self.assertEqual(n.addr_spec, 'sip:alice@example.com')
+    self.assertEqual(n.host, 'example.com')
+    self.assertEqual(n.prms, ';tag=1')
+
+  def test_quoted_display_without_space(self):
+    n = NameAddr('"Alice"<sip:a@b>')
+    self.assertEqual(n.display_name, '"Alice"')
+    self.assertEqual(n.addr_spec, 'sip:a@b')
+    self.assertEqual(n.host, 'b')
+
+  def test_empty_quoted_display(self):
+    n = NameAddr('"" <sip:alice@host>')
+    self.assertIn('""', n.display_name)
+    self.assertEqual(n.addr_spec, 'sip:alice@host')
+
+  def test_semicolon_inside_quoted_display(self):
+    # ';' が引用符の内側にあれば表示名として保持される
+    n = NameAddr('"Weird;Name" <sip:x@h>')
+    self.assertIn('Weird;Name', n.display_name)
+    self.assertEqual(n.addr_spec, 'sip:x@h')
+    self.assertEqual(n.host, 'h')
+
+  def test_uri_param_in_brackets_vs_header_param_outside(self):
+    # 角括弧の中は URI パラメータ、外はヘッダパラメータとして分離される
+    n = NameAddr('<sip:alice@example.com;transport=tcp>;tag=1')
+    self.assertEqual(n.addr_spec, 'sip:alice@example.com;transport=tcp')
+    self.assertEqual(n.uri_prms, ';transport=tcp')
+    self.assertEqual(n.host, 'example.com')
+    self.assertEqual(n.prms, ';tag=1')
+
+  def test_port_in_brackets(self):
+    n = NameAddr('<sip:alice@example.com:5060>')
+    self.assertEqual(n.host, 'example.com')
+    self.assertEqual(n.port, '5060')
+
+  def test_leading_whitespace_before_bracket(self):
+    n = NameAddr('  <sip:a@b>  ;tag=2')
+    self.assertEqual(n.addr_spec, 'sip:a@b')
+    self.assertEqual(n.host, 'b')
+    self.assertIn(';tag=2', n.prms)
+
+  def test_bare_addr_spec_with_port_and_param(self):
+    n = NameAddr('sip:alice@host:5060;tag=1')
+    self.assertEqual(n.addr_spec, 'sip:alice@host:5060')
+    self.assertEqual(n.host, 'host')
+    self.assertEqual(n.port, '5060')
+    self.assertEqual(n.prms, ';tag=1')
+
+
+class TestParsingLimitations(unittest.TestCase):
+  """正規表現ベースの簡略パーサが RFC3261 と乖離する既知の挙動を固定する
+  （DESIGN.md GAP-5: フル ABNF 検証は意図的に省略）。これらは「正しい」
+  挙動ではなく、現状の記録と回帰検知のためのテストである。"""
+
+  def test_non_sip_scheme_leaves_userinfo_unset(self):
+    # sip 以外のスキームは host/port=None のみ設定し、userinfo 属性を設定しない
+    for uri in ('sips:bob@example.com', 'tel:+81312345678'):
+      with self.subTest(uri=uri):
+        a = AddrSpec(uri)
+        self.assertIsNone(a.host)
+        self.assertFalse(hasattr(a, 'userinfo'))
+
+  def test_scheme_match_is_case_sensitive(self):
+    # 'SIP:' は 'sip' に一致せず host が解析されない（RFC ではスキームは大小無視）
+    a = AddrSpec('SIP:alice@example.com')
+    self.assertEqual(a.scheme, 'SIP')
+    self.assertIsNone(a.host)
+
+  def test_ipv6_host_is_truncated(self):
+    # IPv6 参照は最初の ':' で切れる（IPv6 非対応）
+    a = AddrSpec('sip:alice@[2001:db8::1]:5060')
+    self.assertEqual(a.userinfo, 'alice')
+    self.assertEqual(a.host, '[2001')
+    self.assertIsNone(a.port)
+
+  def test_empty_userinfo_folds_at_into_host(self):
+    # 'sip:@host' は userinfo を取らず '@' が host に混入する
+    a = AddrSpec('sip:@example.com')
+    self.assertIsNone(a.userinfo)
+    self.assertEqual(a.host, '@example.com')
+
+  def test_unquoted_display_name_breaks_parsing(self):
+    # 引用符なしの表示名（RFC で合法・実機で頻出）は解析できず host=None になる
+    n = NameAddr('Alice <sip:alice@example.com>')
+    self.assertEqual(n.addr_spec, 'Alice <sip:alice@example.com>')
+    self.assertIsNone(n.host)
+
+  def test_sips_inside_name_addr_not_resolved(self):
+    # name-addr 内の sips: も host を解決できない
+    n = NameAddr('"Bob Smith" <sips:bob@example.com>;tag=xyz')
+    self.assertEqual(n.addr_spec, 'sips:bob@example.com')
+    self.assertIsNone(n.host)
 
 
 class TestHeader(unittest.TestCase):
