@@ -9,9 +9,6 @@
 
 コードは「何を削ったか」すら語らない。まして「なぜ削って安全か」はどこにも書かれていない。したがってこの根拠表は、コードからは再導出できない、本プロジェクト唯一の一次設計情報である。
 
-> 関連: As-Built 要件は [`aidlc-docs/inception/requirements/requirements.md`](aidlc-docs/inception/requirements/requirements.md)、
-> リバースエンジニアリング成果物は [`aidlc-docs/inception/reverse-engineering/`](aidlc-docs/inception/reverse-engineering/) を参照。
-
 ---
 
 ## 1. 適用スコープ（前提の前提）
