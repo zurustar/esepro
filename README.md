@@ -27,5 +27,4 @@ needs stays a small, local change.
 
 Its design is defined as much by what it *omits* as by what it does.
 See [DESIGN.md](DESIGN.md) for the **Non-Goals & Design Rationale** —
-what is intentionally cut, why each cut is safe within scope, and the
-known defects (now fixed) that fell outside that rationale.
+what is intentionally cut and why each cut is safe within scope.
