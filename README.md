@@ -32,10 +32,29 @@ what is intentionally cut and why each cut is safe within scope.
 ## Usage
 
 ```sh
-python3 esepro.py <domain> <listen-ip> <listen-port>
+python3 esepro.py <domain> <listen-ip> <listen-port> [routes-file]
 # e.g.
 python3 esepro.py example.com 0.0.0.0 5060
+python3 esepro.py example.com 0.0.0.0 5060 routes.txt
 ```
+
+### Static routes (for devices that don't REGISTER)
+
+A request addressed to an external host is relayed by its Request-URI
+without any registration. But to reach a device *through this domain*
+(`sip:bob@example.com`), the proxy needs an AOR→Contact mapping — which
+normally only arrives via REGISTER. For devices that never register,
+provide them in an optional routes file: one `AOR Contact` per line,
+`#` comments and blank lines ignored.
+
+```
+# routes.txt — AOR  Contact
+bob    sip:bob@10.0.0.50:5080
+carol  sip:carol@10.0.0.51:5060
+```
+
+Entries are loaded into the location service at startup; a later
+REGISTER for the same AOR overrides the static entry.
 
 ## Tests
 

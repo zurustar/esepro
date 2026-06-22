@@ -8,7 +8,7 @@
 # esepro.py は import 時に副作用を持たない（起動は __main__ ガードの内側）ため、
 # ここから Proxy / Message などを直接 import してテストできる。
 
-import io, socket, contextlib, unittest
+import io, os, socket, tempfile, contextlib, unittest
 
 import esepro
 from esepro import AddrSpec, NameAddr, Header, Message, Proxy
@@ -439,6 +439,61 @@ class TestResponseRouting(ProxyTestCase):
     self.assertEqual(host, '8.8.8.8')        # received= が優先される
     self.assertEqual(port, '5060')
     self.assertNotIn('z9hG4bKtop', buf)      # 先頭 Via は除去された
+
+
+class TestStaticRoutes(ProxyTestCase):
+
+  def _write_routes(self, text):
+    fd, path = tempfile.mkstemp()
+    with os.fdopen(fd, 'w') as f:
+      f.write(text)
+    self.addCleanup(os.remove, path)
+    return path
+
+  def test_load_routes_parses_file(self):
+    path = self._write_routes(
+      '# static routes\n'
+      'bob   sip:bob@10.0.0.50:5080\n'
+      '\n'
+      'carol sip:carol@10.0.0.51:5060\n'
+    )
+    self.px.load_routes(path)
+    self.assertEqual(self.px.location_service['bob'], 'sip:bob@10.0.0.50:5080')
+    self.assertEqual(self.px.location_service['carol'], 'sip:carol@10.0.0.51:5060')
+    self.assertNotIn('#', self.px.location_service)  # コメント行は取り込まない
+
+  def test_static_route_enables_relay_without_register(self):
+    # 自ドメイン宛でも、静的ルートがあれば REGISTER 無しで中継できる
+    path = self._write_routes('bob sip:bob@10.0.0.50:5080\n')
+    self.px.load_routes(path)
+    self.feed(sip([
+      'INVITE sip:bob@test.example SIP/2.0',
+      'Via: SIP/2.0/UDP 9.9.9.9:5060;branch=z9hG4bKs',
+      'From: <sip:caller@test.example>;tag=1',
+      'To: <sip:bob@test.example>',
+      'Call-ID: c', 'CSeq: 1 INVITE',
+      'Max-Forwards: 70', 'Content-Length: 0',
+    ]))
+    self.assertEqual(len(self.sent), 1)
+    buf, host, port = self.sent[0]
+    self.assertEqual(host, '10.0.0.50')
+    self.assertEqual(port, '5080')
+    self.assertIn('INVITE sip:bob@10.0.0.50:5080 SIP/2.0', buf)
+
+  def test_register_overrides_static_route(self):
+    # 後から来た REGISTER が静的ルートを上書きする（動的登録が優先）
+    path = self._write_routes('bob sip:bob@10.0.0.50:5080\n')
+    self.px.load_routes(path)
+    self.feed(sip([
+      'REGISTER sip:test.example SIP/2.0',
+      'Via: SIP/2.0/UDP 9.9.9.9:5060;branch=z9hG4bKr',
+      'From: <sip:bob@test.example>;tag=1',
+      'To: <sip:bob@test.example>',
+      'Call-ID: c', 'CSeq: 1 REGISTER',
+      'Contact: sip:bob@9.9.9.9:6000',
+      'Content-Length: 0',
+    ]))
+    self.assertEqual(self.px.location_service['bob'], 'sip:bob@9.9.9.9:6000')
 
 
 class TestRobustness(ProxyTestCase):

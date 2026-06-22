@@ -108,6 +108,18 @@ class Proxy:
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     self.sock.bind((self.ip, self.port))
 
+  def load_routes(self, path):
+    # 静的ルートを Location Service に取り込む（REGISTER を送らない装置向け）。
+    # 形式: 1行 "AOR Contact"。'#' で始まる行と空行は無視する。
+    # 後で同じ AOR の REGISTER が来れば上書きされる（動的登録が優先）。
+    with open(path) as f:
+      for line in f:
+        line = line.strip()
+        if line == '' or line.startswith('#'):
+          continue
+        aor, contact = re.split(r'\s+', line, 1)
+        self.location_service[aor] = contact
+
   def start(self):
     while True:
       buf, addr = self.sock.recvfrom(0xffff)
@@ -263,6 +275,8 @@ class Proxy:
 
 if __name__ == '__main__':
   px = Proxy(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+  if len(sys.argv) > 4:
+    px.load_routes(sys.argv[4])
   print("ok")
   px.start()
 
