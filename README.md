@@ -28,3 +28,21 @@ needs stays a small, local change.
 Its design is defined as much by what it *omits* as by what it does.
 See [DESIGN.md](DESIGN.md) for the **Non-Goals & Design Rationale** —
 what is intentionally cut and why each cut is safe within scope.
+
+## Usage
+
+```sh
+python3 esepro.py <domain> <listen-ip> <listen-port>
+# e.g.
+python3 esepro.py example.com 0.0.0.0 5060
+```
+
+## Tests
+
+Unit tests for the message parsing and proxy logic live in a separate
+file, `test_esepro.py`, so that `esepro.py` itself stays minimal. They
+use only the standard library (`unittest`):
+
+```sh
+python3 -m unittest        # or: python3 -m unittest -v
+```

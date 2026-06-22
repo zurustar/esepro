@@ -258,7 +258,8 @@ class Proxy:
     print('-' * 8)
     print(buf)
 
-px = Proxy(sys.argv[1], sys.argv[2], int(sys.argv[3]))
-print("ok")
-px.start()
+if __name__ == '__main__':
+  px = Proxy(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+  print("ok")
+  px.start()
 
